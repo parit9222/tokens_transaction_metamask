@@ -6,11 +6,10 @@ import 'react-toastify/dist/ReactToastify.css';
 import { BulkSenderContract, ERC_20Contract } from './contract/listen_contract.js';
 import { ethers } from 'ethers';
 import Navbar from './components/Navbar.jsx';
+import { FaTimes } from "react-icons/fa";
 
 
 const web3 = new Web3(Web3.givenProvider);
-// [1000000000000000000, 1000000000000000000]
-// [1000000000000000000n, 1000000000000000000n]
 
 export default function App() {
 
@@ -34,6 +33,16 @@ export default function App() {
   const [groupedAmount, setGroupedAmount] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
 
+  const [showSavePopup, setShowSavePopup] = useState(false);
+  const [rejectedData, setRejectedData] = useState(null);
+  console.log(rejectedData);
+  
+  const [successfulData, setSuccessfulData] = useState({ tokens: [], amounts: [] });
+  console.log(successfulData);
+
+
+
+
 
 
 
@@ -55,7 +64,6 @@ export default function App() {
 
   const handleApprove = async () => {
     const contractResult = await ERC_20Contract();
-    console.log(contractResult);
 
     if (walletAddressForBalance) {
       const decimals = await contractResult.decimals();
@@ -73,20 +81,133 @@ export default function App() {
 
   const handleTokenSender = async () => {
     const contractResult = await BulkSenderContract();
-
     if (walletAddressForBalance && groupedToken && groupedAmount) {
       if (groupedToken.length === groupedAmount.length) {
+        const successfulTransfers = [];
+        const rejectedTransfers = [];
+  
         for (let i = 0; i < groupedToken.length; i++) {
-          console.log(groupedToken[i], groupedAmount[i]);
-          const tokenSender = await contractResult.tokenSender(ERC_20_TokenAddress, groupedToken[i], groupedAmount[i]);
-          await tokenSender.wait();
-
+          try {
+            const tokenSender = await contractResult.tokenSender(ERC_20_TokenAddress, groupedToken[i], groupedAmount[i]);
+            await tokenSender.wait();
+            console.log(tokenSender);
+  
+            successfulTransfers.push({ token: groupedToken[i], amount: groupedAmount[i] });
+          } catch (error) {
+            console.error('Error during token transfer:', error);
+            rejectedTransfers.push({ token: groupedToken[i], amount: groupedAmount[i] });
+          }
         }
+  
+        if (successfulTransfers.length > 0) {
+          setSuccessfulData({ tokens: successfulTransfers.map(t => t.token), amounts: successfulTransfers.map(t => t.amount) });
+          // toast.success('Tokens transferred successfully');
+        }
+  
+        if (rejectedTransfers.length > 0) {
+          setRejectedData({ tokens: rejectedTransfers.map(t => t.token), amounts: rejectedTransfers.map(t => t.amount) });
+          toast.error('Transaction failed. Asking for permission to save data.');
+          setShowSavePopup(true);
+        }
+      } else {
+        toast.error('Mismatch between tokens and amounts.');
       }
     } else {
-      toast.error('Error in handleApprove: Missing wallet address or grouped transfer data');
+      toast.error('Missing wallet address or grouped transfer data.');
     }
   };
+
+
+  const saveRejectedDataToExcel = (tokens, amounts) => {
+    const excelArray = [];
+    const divisor = BigInt(10 ** 18);
+
+    for (let i = 0; i < tokens[0].length; i++) {
+      const amount = BigInt(amounts[0][i]);
+      const normalAmount = (amount / divisor).toString();
+
+      const excelData = {
+        tokens: tokens[0][i],
+        amount: normalAmount
+      };
+
+      excelArray.push(excelData);
+    }
+    console.log(excelArray);
+
+    const ws = XLSX.utils.json_to_sheet(excelArray);
+    console.log(ws);
+
+    const wb = XLSX.utils.book_new();
+    console.log(wb);
+
+    XLSX.utils.book_append_sheet(wb, ws);
+    XLSX.writeFile(wb, 'Failed_transactions.xlsx');
+  };
+
+  const saveSuccessDataToExcel = (tokens, amounts) => {
+    const excelArray = [];
+    const divisor = BigInt(10 ** 18);
+
+    for (let i = 0; i < tokens[0].length; i++) {
+      const amount = BigInt(amounts[0][i]);
+      const normalAmount = (amount / divisor).toString();
+
+      const excelData = {
+        tokens: tokens[0][i],
+        amount: normalAmount
+      };
+
+      excelArray.push(excelData);
+    }
+    console.log(excelArray);
+
+    const ws = XLSX.utils.json_to_sheet(excelArray);
+    console.log(ws);
+
+    const wb = XLSX.utils.book_new();
+    console.log(wb);
+
+    XLSX.utils.book_append_sheet(wb, ws);
+    XLSX.writeFile(wb, 'Success_transactions.xlsx');
+  };
+
+
+  const handleRejectedConfirmSave = () => {
+    if (rejectedData) {
+      saveRejectedDataToExcel(rejectedData.tokens, rejectedData.amounts);
+      setRejectedData(null);
+      setShowSavePopup(false);
+    }
+  };
+
+  const handleSuccessConfirmSave = () => {
+    if (successfulData) {
+      saveSuccessDataToExcel(successfulData.tokens, successfulData.amounts);
+      setSuccessfulData(null);
+      setShowSavePopup(false);
+    }
+  };
+
+  const handleBothConfirmSave = () => {
+    if (successfulData && rejectedData) {
+      saveRejectedDataToExcel(rejectedData.tokens, rejectedData.amounts);
+      saveSuccessDataToExcel(successfulData.tokens, successfulData.amounts);
+      setSuccessfulData(null);
+      setRejectedData(null);
+      setShowSavePopup(false);
+    }
+  };
+
+  const handleCancelSave = () => {
+    setRejectedData(null);
+    setSuccessfulData(null);
+    setShowSavePopup(false);
+    toast.info('Saving canceled.');
+  };
+
+
+
 
 
 
@@ -96,7 +217,6 @@ export default function App() {
     if (walletAddressForBalance) {
       const decimals = await contractResult.decimals();
       const amountToSend = (BigInt(Math.floor(Number(deci) * Math.pow(10, decimals))));
-      console.log(amountToSend);
 
       return amountToSend;
     } else {
@@ -333,7 +453,7 @@ export default function App() {
           setGroupedAmount(groupedAmounts);
           setGroupedTransferData({ token: groupedTokens, amount: groupedAmounts });
           setRowCount(tokens.length);
-          const totalAmount = amounts.reduce((sum, value) => sum + value, 0);
+          const totalAmount = amounts.reduce((sum, value) => +sum + +value, 0);
           setRowAmount(totalAmount.toFixed(fixedDigitValue));
 
           if (hasInvalidAddresses) {
@@ -351,123 +471,6 @@ export default function App() {
     }
   };
 
-
-  // const handleConfirmUpload = async () => {
-  //   if (rowAmount >= walletBalance) {
-  //     toast.error('Insufficient Balance are there in your Wallet');
-  //     setShowPopup(false);
-  //     return;
-  //   }
-  //   // const log = await handleAllowance();
-  //   // console.log(log);
-
-  //   // const log1 = await handleApprove();
-  //   // console.log(log1);
-
-  //   const log2 = await handleTokenSender();
-  //   console.log(log2);
-
-  //   const reader = new FileReader();
-  //   reader.onload = (e) => {
-  //     const data = new Uint8Array(e.target.result);
-  //     const workbook = XLSX.read(data, { type: 'array' });
-  //     const sheetName = workbook.SheetNames[0];
-  //     const worksheet = workbook.Sheets[sheetName];
-  //     const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-  //     fetch('/api/token', {
-  //       method: 'POST',
-  //       headers: {
-  //         'Content-Type': 'application/json',
-  //       },
-  //       body: JSON.stringify(jsonData),
-  //     })
-  //       .then((response) => {
-  //         if (!response.ok) {
-  //           throw new Error('Network response was not ok');
-  //         }
-  //         return response.json();
-  //       })
-  //       .then((data) => {
-  //         console.log('Data successfully uploaded:', data);
-  //         toast.success('Data uploaded successfully');
-  //       })
-  //       .catch((error) => {
-  //         console.error('Error uploading data:', error);
-  //         toast.error('Error uploading data');
-  //       });
-  //   };
-
-  //   reader.readAsArrayBuffer(file);
-
-  //   console.log(groupedTransferData);
-
-  //   setShowPopup(false);
-  // };
-
-  // const handleConfirmUpload = async () => {
-  //   if (rowAmount >= walletBalance) {
-  //     toast.error('Insufficient Balance are there in your Wallet');
-  //     setShowPopup(false);
-  //     return;
-  //   }
-
-  //   try {
-  //     const approval = await handleApprove();
-
-  //     if (approval.toString() === '0') {
-  //       const allowance = await handleAllowance();
-  //       if (allowance.toString() === '0') { 
-  //         toast.error('Approval failed. Cannot proceed with the token transfer.');
-  //         setShowPopup(false);
-  //         return;
-  //       } else {
-  //         toast.success('Approval granted.');
-  //       }
-  //     }
-
-  //     await handleTokenSender();
-
-  //     const reader = new FileReader();
-  //     reader.onload = (e) => {
-  //       const data = new Uint8Array(e.target.result);
-  //       const workbook = XLSX.read(data, { type: 'array' });
-  //       const sheetName = workbook.SheetNames[0];
-  //       const worksheet = workbook.Sheets[sheetName];
-  //       const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-  //       fetch('/api/token', {
-  //         method: 'POST',
-  //         headers: {
-  //           'Content-Type': 'application/json',
-  //         },
-  //         body: JSON.stringify(jsonData),
-  //       })
-  //         .then((response) => {
-  //           if (!response.ok) {
-  //             throw new Error('Network response was not ok');
-  //           }
-  //           return response.json();
-  //         })
-  //         .then((data) => {
-  //           console.log('Data successfully uploaded:', data);
-  //           toast.success('Data uploaded successfully');
-  //         })
-  //         .catch((error) => {
-  //           console.error('Error uploading data:', error);
-  //           toast.error('Error uploading data');
-  //         });
-  //     };
-
-  //     reader.readAsArrayBuffer(file);
-  //   } catch (error) {
-  //     console.error('Error during token approval or transfer:', error);
-  //     toast.error('Error during token approval or transfer');
-  //   }
-
-  //   setShowPopup(false);
-  // };
-
   const handleConfirmUpload = async () => {
     if (rowAmount >= walletBalance) {
       toast.error('Insufficient Balance are there in your Wallet');
@@ -477,27 +480,19 @@ export default function App() {
     setIsUploading(true);
     try {
       const allowance = await handleAllowance();
-      console.log(allowance);
-      console.log(rowAmount * (10 ** 18));
-      console.log(rowAmount * (10 ** 18) > allowance);
 
       const rowAmountBigInt = rowAmount * (10 ** 18);
-      console.log(rowAmountBigInt);
-
-      console.log(rowAmountBigInt > allowance);
-
 
       if (rowAmountBigInt > allowance) {
 
-        const approval = await handleApprove();
-        console.log(approval);
+        await handleApprove();
 
       }
 
       await handleTokenSender();
 
 
-      toast.success("Tokens transfer successfully");
+      // toast.success("Tokens transfer successfully");
 
 
     } catch (error) {
@@ -645,6 +640,42 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {showSavePopup && (
+          <div className='fixed inset-0 flex items-center justify-center bg-black bg-opacity-60'>
+            <div className='bg-white p-6 rounded-lg shadow-lg max-w-lg w-full relative'>
+              <button
+                className='absolute top-0 right-0 p-2 text-gray-400 hover:text-gray-600 transition'
+                onClick={handleCancelSave}
+              >
+                <FaTimes />
+              </button>
+              <h2 className='text-2xl font-semibold text-gray-800 mb-4'>Save Rejected Transactions</h2>
+              <p className='text-gray-700 mb-4'>Some transactions were rejected. Do you want to save the data to an Excel file?</p>
+              <div className='flex justify-end gap-3'>
+                <button
+                  className='px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition'
+                  onClick={handleSuccessConfirmSave}
+                >
+                  Save Success Data
+                </button>
+                <button
+                  className='px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition'
+                  onClick={handleRejectedConfirmSave}
+                >
+                  Save Rejected Data
+                </button>
+                <button
+                  className='px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition'
+                  onClick={handleBothConfirmSave}
+                >
+                  Save Both Data
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
 
 
       </div>
